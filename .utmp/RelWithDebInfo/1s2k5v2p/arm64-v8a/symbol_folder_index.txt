@@ -1,0 +1,1 @@
+D:\New project\WARFRONT\Library\Bee\Android\Prj\IL2CPP\Gradle\unityLibrary\build\intermediates\cxx\RelWithDebInfo\1s2k5v2p\obj\arm64-v8a

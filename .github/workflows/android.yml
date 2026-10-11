@@ -1,0 +1,104 @@
+name: Build Warfront Android APK
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A second push to the same ref cancels the first: an Android build is expensive and only the newest
+# commit's artifact matters.
+concurrency:
+  group: warfront-android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    # An Android IL2CPP build is slow, but it should never need more than this.
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Verify project layout
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for required in Assets Packages ProjectSettings Assets/Warfront/Editor/WarfrontBuild.cs; do
+            if [ ! -e "$required" ]; then
+              echo "::error::Required path '$required' is missing from the repository."
+              exit 1
+            fi
+          done
+
+          # A Unity project cannot be built without its package manifest.
+          test -f Packages/manifest.json || { echo "::error::Packages/manifest.json missing."; exit 1; }
+          echo "Unity project layout verified."
+
+      - name: Cache Unity Library
+        uses: actions/cache@v4
+        with:
+          path: Library
+          key: Unity-Library-Android-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
+          restore-keys: |
+            Unity-Library-Android-
+
+      - name: Build Android APK
+        uses: game-ci/unity-builder@v4
+        env:
+          # Unity licensing. Personal licences use the .ulf contents plus the account credentials;
+          # Pro/Plus licences would use UNITY_SERIAL instead. Never hardcode these.
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          # Must match ProjectSettings/ProjectVersion.txt exactly.
+          unityVersion: 6000.0.84f1
+          targetPlatform: Android
+          # An installable APK, not a Play Store bundle.
+          androidExportType: androidPackage
+          # Custom build entry point. It configures the project (URP asset, layers, player settings,
+          # boot scene) and then builds, so CI is reproducible from a clean checkout. It writes the APK
+          # to whatever BUILD_PATH/BUILD_FILE the action exports, falling back to Builds/Warfront.apk.
+          buildMethod: Warfront.EditorTools.WarfrontBuild.BuildAndroidApk
+          buildsPath: Builds
+          buildName: Warfront
+          # The build method intentionally (re)writes project configuration, which can leave the working
+          # tree dirty even on a clean checkout. That is expected here rather than a symptom to ignore.
+          allowDirtyBuild: true
+
+      - name: Verify APK was generated
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APK_COUNT=$(find Builds -type f -name '*.apk' | wc -l)
+
+          if [ "$APK_COUNT" -eq 0 ]; then
+            echo "::error::Android build completed without generating an APK. Expected an APK under Builds/."
+            exit 1
+          fi
+
+          echo "Generated APK(s):"
+          find Builds -type f -name '*.apk' -printf '%p  %s bytes\n'
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Warfront-android-apk
+          # Covers both the flat local layout and the nested Builds/Android layout the action requests.
+          path: |
+            Builds/*.apk
+            Builds/**/*.apk
+          if-no-files-found: error
+          retention-days: 14
