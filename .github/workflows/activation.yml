@@ -1,18 +1,11 @@
-name: Get Unity Activation File
+name: Unity Activation File (Disabled)
 
 on:
   workflow_dispatch:
 
 jobs:
-  activation:
+  notice:
     runs-on: ubuntu-latest
     steps:
-      - name: Request activation file
-        id: activation
-        uses: game-ci/unity-request-activation-file@v2
-
-      - name: Upload activation file
-        uses: actions/upload-artifact@v4
-        with:
-          name: Unity-Activation-File
-          path: ${{ steps.activation.outputs.filePath }}
+      - name: Instructions
+        run: echo "Use the Unity license file from Unity Hub."
